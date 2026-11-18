@@ -1,0 +1,116 @@
+
+---
+- name: Configure Samba server
+  hosts: bijec
+  become: true
+
+  tasks:
+    - name: Install Samba, firewall and SELinux tools
+      ansible.builtin.package:
+        name:
+          - samba
+          - samba-client
+          - firewalld
+          - policycoreutils-python-utils
+        state: present
+
+    - name: Create Samba group
+      ansible.builtin.group:
+        name: "{{ samba_group }}"
+        system: true
+        state: present
+
+    - name: Create Samba-only user
+      ansible.builtin.user:
+        name: "{{ samba_user }}"
+        group: "{{ samba_group }}"
+        system: true
+        create_home: false
+        home: /nonexistent
+        shell: /sbin/nologin
+        password_lock: true
+        state: present
+
+    - name: Create shared directories
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: directory
+        owner: "{{ samba_user }}"
+        group: "{{ samba_group }}"
+        mode: "2770"
+      loop: "{{ samba_shares }}"
+
+    - name: Configure SELinux contexts for Samba shares
+      community.general.sefcontext:
+        target: "{{ item.path }}(/.*)?"
+        setype: samba_share_t
+        state: present
+      loop: "{{ samba_shares }}"
+      when: ansible_selinux.status | default('disabled') == 'enabled'
+
+    - name: Apply SELinux contexts
+      ansible.builtin.command:
+        argv:
+          - restorecon
+          - -RFv
+          - "{{ item.path }}"
+      loop: "{{ samba_shares }}"
+      register: samba_restorecon
+      changed_when: samba_restorecon.stdout | length > 0
+      when: ansible_selinux.status | default('disabled') == 'enabled'
+
+    - name: Configure Samba
+      ansible.builtin.template:
+        src: templates/smb.conf.j2
+        dest: /etc/samba/smb.conf
+        owner: root
+        group: root
+        mode: "0644"
+        validate: "testparm -s %s"
+      notify: Restart Samba
+
+    - name: Ensure firewalld is enabled and started
+      ansible.builtin.service:
+        name: firewalld
+        enabled: true
+        state: started
+
+    - name: Remove unrestricted Samba firewall service
+      ansible.posix.firewalld:
+        service: samba
+        zone: "{{ samba_firewalld_zone }}"
+        state: disabled
+        permanent: true
+        immediate: true
+
+    - name: Remove unrestricted SMB port
+      ansible.posix.firewalld:
+        port: 445/tcp
+        zone: "{{ samba_firewalld_zone }}"
+        state: disabled
+        permanent: true
+        immediate: true
+
+    - name: Allow SMB only from TUL networks
+      ansible.posix.firewalld:
+        rich_rule: >-
+          rule family="{{ item.family }}"
+          source address="{{ item.cidr }}"
+          port port="445" protocol="tcp" accept
+        zone: "{{ samba_firewalld_zone }}"
+        state: enabled
+        permanent: true
+        immediate: true
+      loop: "{{ samba_allowed_networks }}"
+
+    - name: Enable and start Samba
+      ansible.builtin.service:
+        name: smb
+        enabled: true
+        state: started
+
+  handlers:
+    - name: Restart Samba
+      ansible.builtin.service:
+        name: smb
+        state: restarted

@@ -1,0 +1,26 @@
+
+---
+samba_user: smbshare
+samba_group: sambashare
+
+samba_workgroup: WORKGROUP
+samba_server_string: SambaBijec
+
+samba_firewalld_zone: public
+
+samba_allowed_networks:
+  - family: ipv4
+    cidr: 147.230.0.0/16
+  - family: ipv6
+    cidr: 2001:718:1c01::/48
+
+samba_shares:
+  - name: files
+    path: /srv/samba/files
+    comment: Shared files
+    browseable: "yes"
+    read_only: "no"
+    guest_ok: "no"
+    valid_users: smbshare
+    create_mask: "0660"
+    directory_mask: "2770"

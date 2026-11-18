@@ -1,0 +1,31 @@
+
+[global]
+   workgroup = {{ samba_workgroup }}
+   server string = {{ samba_server_string }}
+   server role = standalone server
+   security = user
+   passdb backend = tdbsam
+   map to guest = never
+
+   server min protocol = SMB2
+   smb ports = 445
+   disable netbios = yes
+
+[printers]
+   browseable = no
+   read only = yes
+   guest ok = no
+
+{% for share in samba_shares %}
+[{{ share.name }}]
+   comment = {{ share.comment }}
+   path = {{ share.path }}
+   browseable = {{ share.browseable }}
+   read only = {{ share.read_only }}
+   guest ok = {{ share.guest_ok }}
+   valid users = {{ share.valid_users }}
+   force group = {{ samba_group }}
+   create mask = {{ share.create_mask }}
+   directory mask = {{ share.directory_mask }}
+
+{% endfor %}
